@@ -1,0 +1,50 @@
+#!/bin/sh
+echo "Starting init script..."
+mount -t proc proc /proc
+mkdir -p /sys
+mount -t sysfs sysfs /sys
+mkdir -p /dev
+mount -t devtmpfs none /dev
+
+# Helper: extract a key=value from /proc/cmdline
+get_cmdline_param() {
+    cat /proc/cmdline | tr ' ' '\n' | grep "^${1}=" | cut -d= -f2-
+}
+
+HOST="$(hostname)"
+if [ "$HOST" = "sender" ]; then
+	echo "Configuring sender..."
+	ifconfig eth0 192.168.1.2 netmask 255.255.255.0 up
+	echo "Running sender..."
+	/sender
+elif [ "$HOST" = "receiver" ]; then
+	echo "Configuring receiver..."
+	ifconfig eth0 192.168.1.3 netmask 255.255.255.0 up
+	echo "Running receiver..."
+	/receiver
+elif echo "$HOST" | grep -qE "^vehicle[0-9]+$"; then
+	echo "Configuring $HOST..."
+	ifconfig eth0 up
+
+	VC_MODE=$(get_cmdline_param vc_mode)
+	VC_ID=$(get_cmdline_param vc_id)
+	VC_PORT=$(get_cmdline_param vc_port)
+	VC_COMPONENT=$(get_cmdline_param vc_component)
+	VC_PERIOD=$(get_cmdline_param vc_period)
+	VC_COUNT=$(get_cmdline_param vc_count)
+
+	: "${VC_MODE:=sender}"
+	: "${VC_ID:=1}"
+	: "${VC_PORT:=200}"
+	: "${VC_COMPONENT:=sensor}"
+	: "${VC_PERIOD:=1000}"
+
+	ARGS="--mode $VC_MODE --vehicle-id $VC_ID --port $VC_PORT --component $VC_COMPONENT --period-ms $VC_PERIOD"
+	[ -n "$VC_COUNT" ] && ARGS="$ARGS --count $VC_COUNT"
+
+	echo "Launching vehicle_component $ARGS"
+	setsid cttyhack /vehicle_component $ARGS
+fi
+
+echo "init script finished"
+setsid cttyhack sh
