@@ -20,16 +20,19 @@ get_cmdline_param() {
 }
 
 HOST="$(hostname)"
+AUTO_SHUTDOWN=0
 if [ "$HOST" = "sender" ]; then
 	echo "Configuring sender..."
 	ifconfig eth0 192.168.1.2 netmask 255.255.255.0 up
 	echo "Running sender..."
 	/sender
+	AUTO_SHUTDOWN=1
 elif [ "$HOST" = "receiver" ]; then
 	echo "Configuring receiver..."
 	ifconfig eth0 192.168.1.3 netmask 255.255.255.0 up
 	echo "Running receiver..."
 	/receiver
+	AUTO_SHUTDOWN=1
 elif echo "$HOST" | grep -qE "^vehicle[0-9]+$"; then
 	echo "Configuring $HOST..."
 	ifconfig eth0 up
@@ -58,7 +61,15 @@ elif echo "$HOST" | grep -qE "^vehicle[0-9]+$"; then
 
 	echo "Launching vehicle_component $ARGS"
 	setsid cttyhack /vehicle_component $ARGS
+	AUTO_SHUTDOWN=1
 fi
 
 echo "init script finished"
+if [ "$AUTO_SHUTDOWN" = "1" ]; then
+	echo "Simulation finished, shutting down VM..."
+	sync
+	poweroff -f 2>/dev/null || halt -f 2>/dev/null || reboot -f
+	sleep 1
+fi
+
 setsid cttyhack sh
