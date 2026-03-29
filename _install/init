@@ -5,6 +5,14 @@ mkdir -p /sys
 mount -t sysfs sysfs /sys
 mkdir -p /dev
 mount -t devtmpfs none /dev
+mkdir -p /hostlogs
+
+if mount -t 9p -o trans=virtio,version=9p2000.L hostlogs /hostlogs 2>/dev/null; then
+	export LATENCY_LOG_DIR=/hostlogs
+	echo "Latency logs: host share mounted at /hostlogs"
+else
+	echo "Latency logs: host share unavailable, using guest local logs/"
+fi
 
 # Helper: extract a key=value from /proc/cmdline
 get_cmdline_param() {
@@ -32,14 +40,20 @@ elif echo "$HOST" | grep -qE "^vehicle[0-9]+$"; then
 	VC_COMPONENT=$(get_cmdline_param vc_component)
 	VC_PERIOD=$(get_cmdline_param vc_period)
 	VC_COUNT=$(get_cmdline_param vc_count)
+	VC_TIMEOUT=$(get_cmdline_param vc_timeout)
+	VC_QUADRANT=$(get_cmdline_param vc_quadrant)
+	VC_QCHANGE_MS=$(get_cmdline_param vc_quadrant_change_ms)
 
 	: "${VC_MODE:=sender}"
 	: "${VC_ID:=1}"
 	: "${VC_PORT:=200}"
 	: "${VC_COMPONENT:=sensor}"
 	: "${VC_PERIOD:=1000}"
+	: "${VC_TIMEOUT:=0}"
+	: "${VC_QUADRANT:=0}"
+	: "${VC_QCHANGE_MS:=0}"
 
-	ARGS="--mode $VC_MODE --vehicle-id $VC_ID --port $VC_PORT --component $VC_COMPONENT --period-ms $VC_PERIOD"
+	ARGS="--mode $VC_MODE --vehicle-id $VC_ID --port $VC_PORT --component $VC_COMPONENT --period-ms $VC_PERIOD --timeout-s $VC_TIMEOUT --quadrant $VC_QUADRANT --quadrant-change-ms $VC_QCHANGE_MS"
 	[ -n "$VC_COUNT" ] && ARGS="$ARGS --count $VC_COUNT"
 
 	echo "Launching vehicle_component $ARGS"
