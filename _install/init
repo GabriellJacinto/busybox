@@ -37,30 +37,39 @@ elif echo "$HOST" | grep -qE "^vehicle[0-9]+$"; then
 	echo "Configuring $HOST..."
 	ifconfig eth0 up
 
-	VC_MODE=$(get_cmdline_param vc_mode)
 	VC_ID=$(get_cmdline_param vc_id)
-	VC_PORT=$(get_cmdline_param vc_port)
-	VC_COMPONENT=$(get_cmdline_param vc_component)
-	VC_PERIOD=$(get_cmdline_param vc_period)
-	VC_COUNT=$(get_cmdline_param vc_count)
 	VC_TIMEOUT=$(get_cmdline_param vc_timeout)
 	VC_QUADRANT=$(get_cmdline_param vc_quadrant)
 	VC_QCHANGE_MS=$(get_cmdline_param vc_quadrant_change_ms)
+	VC_BASE_PORT=$(get_cmdline_param vc_base_port)
 
-	: "${VC_MODE:=sender}"
 	: "${VC_ID:=1}"
-	: "${VC_PORT:=200}"
-	: "${VC_COMPONENT:=sensor}"
-	: "${VC_PERIOD:=1000}"
 	: "${VC_TIMEOUT:=0}"
 	: "${VC_QUADRANT:=0}"
 	: "${VC_QCHANGE_MS:=0}"
+	: "${VC_BASE_PORT:=200}"
 
-	ARGS="--mode $VC_MODE --vehicle-id $VC_ID --port $VC_PORT --component $VC_COMPONENT --period-ms $VC_PERIOD --timeout-s $VC_TIMEOUT --quadrant $VC_QUADRANT --quadrant-change-ms $VC_QCHANGE_MS"
-	[ -n "$VC_COUNT" ] && ARGS="$ARGS --count $VC_COUNT"
+	echo "Launching fixed vehicle component processes (mode=both for radar/lidar/gps)"
+	PIDS=""
 
-	echo "Launching vehicle_component $ARGS"
-	setsid cttyhack /vehicle_component $ARGS
+	launch_proc() {
+		COMPONENT="$1"
+		PORT="$2"
+		PERIOD="$3"
+
+		ARGS="--mode both --vehicle-id $VC_ID --port $PORT --component $COMPONENT --period-ms $PERIOD --timeout-s $VC_TIMEOUT --quadrant $VC_QUADRANT --quadrant-change-ms $VC_QCHANGE_MS"
+		echo "Launching vehicle_component $ARGS"
+		setsid cttyhack /vehicle_component $ARGS &
+		PIDS="$PIDS $!"
+	}
+
+	launch_proc radar $((VC_BASE_PORT + 0)) 200
+	launch_proc lidar $((VC_BASE_PORT + 1)) 200
+	launch_proc gps $((VC_BASE_PORT + 2)) 500
+
+	for PID in $PIDS; do
+		wait "$PID"
+	done
 	AUTO_SHUTDOWN=1
 fi
 
