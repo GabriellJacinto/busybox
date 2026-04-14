@@ -45,14 +45,20 @@ elif echo "$HOST" | grep -qE "^vehicle[0-9]+$"; then
 	VC_CHANNEL=$(get_cmdline_param vc_channel)
 	VC_GATEWAY_COMPONENT=$(get_cmdline_param vc_gateway_component)
 	VC_GATEWAY_CHANNEL=$(get_cmdline_param vc_gateway_channel)
+	VC_GATEWAY_UPLINK_PORT=$(get_cmdline_param vc_gateway_uplink_port)
+	VC_GATEWAY_DOWNLINK_PORT=$(get_cmdline_param vc_gateway_downlink_port)
+	VC_ECU_PORT=$(get_cmdline_param vc_ecu_port)
+	VC_PORT_STRIDE=$(get_cmdline_param vc_port_stride)
 	VC_LEAF_CHANNEL=$(get_cmdline_param vc_leaf_channel)
 	VC_SHM_PROC_COUNT=$(get_cmdline_param vc_shm_proc_count)
 	VC_SHM_BUFFERS=$(get_cmdline_param vc_shm_buffers)
 	VC_SHM_KEY=$(get_cmdline_param vc_shm_key)
 	VC_SEM_KEY=$(get_cmdline_param vc_sem_key)
+	VC_PERIOD_ECU=$(get_cmdline_param vc_period_ecu)
 	VC_PERIOD_RADAR=$(get_cmdline_param vc_period_radar)
 	VC_PERIOD_LIDAR=$(get_cmdline_param vc_period_lidar)
 	VC_PERIOD_GPS=$(get_cmdline_param vc_period_gps)
+	VC_MEASURE_RTT=$(get_cmdline_param vc_measure_rtt)
 
 	: "${VC_ID:=1}"
 	: "${VC_TIMEOUT:=0}"
@@ -62,14 +68,20 @@ elif echo "$HOST" | grep -qE "^vehicle[0-9]+$"; then
 	: "${VC_CHANNEL:=}"
 	: "${VC_GATEWAY_COMPONENT:=ecu}"
 	: "${VC_GATEWAY_CHANNEL:=both}"
+	: "${VC_GATEWAY_UPLINK_PORT:=300}"
+	: "${VC_GATEWAY_DOWNLINK_PORT:=0}"
+	: "${VC_ECU_PORT:=}"
+	: "${VC_PORT_STRIDE:=1}"
 	: "${VC_LEAF_CHANNEL:=shm}"
 	: "${VC_SHM_PROC_COUNT:=4}"
 	: "${VC_SHM_BUFFERS:=8}"
 	: "${VC_SHM_KEY:=74560}"
 	: "${VC_SEM_KEY:=74561}"
+	: "${VC_PERIOD_ECU:=500}"
 	: "${VC_PERIOD_RADAR:=200}"
 	: "${VC_PERIOD_LIDAR:=200}"
 	: "${VC_PERIOD_GPS:=500}"
+	: "${VC_MEASURE_RTT:=0}"
 
 	echo "Launching fixed vehicle processes (ecu gateway + radar/lidar/gps leaves)"
 	PIDS=""
@@ -81,15 +93,22 @@ elif echo "$HOST" | grep -qE "^vehicle[0-9]+$"; then
 		SHM_PROC_ID="$4"
 		CHANNEL="$5"
 		MODE="both"
-		if [ "$COMPONENT" = "ecu" ]; then
+		if [ "$COMPONENT" = "ecu" ] && [ "$CHANNEL" = "both" ]; then
 			MODE="gateway"
 		fi
 
-		ARGS="--mode $MODE --channel $CHANNEL --vehicle-id $VC_ID --port $PORT --component $COMPONENT --period-ms $PERIOD --timeout-s $VC_TIMEOUT --quadrant $VC_QUADRANT --quadrant-change-ms $VC_QCHANGE_MS --shm-proc-id $SHM_PROC_ID --shm-proc-count $VC_SHM_PROC_COUNT --shm-buffers $VC_SHM_BUFFERS --shm-key $VC_SHM_KEY --sem-key $VC_SEM_KEY"
+		ARGS="--mode $MODE --channel $CHANNEL --vehicle-id $VC_ID --port $PORT --component $COMPONENT --period-ms $PERIOD --timeout-s $VC_TIMEOUT --quadrant $VC_QUADRANT --quadrant-change-ms $VC_QCHANGE_MS --gateway-uplink-port $VC_GATEWAY_UPLINK_PORT --gateway-downlink-port $VC_GATEWAY_DOWNLINK_PORT --shm-proc-id $SHM_PROC_ID --shm-proc-count $VC_SHM_PROC_COUNT --shm-buffers $VC_SHM_BUFFERS --shm-key $VC_SHM_KEY --sem-key $VC_SEM_KEY"
+		if [ "$VC_MEASURE_RTT" = "1" ]; then
+			ARGS="$ARGS --measure-rtt"
+		fi
 		echo "Launching vehicle_component $ARGS"
 		setsid cttyhack /vehicle_component $ARGS &
 		PIDS="$PIDS $!"
 	}
+
+	if [ -z "$VC_ECU_PORT" ]; then
+		VC_ECU_PORT=$((VC_BASE_PORT + 100))
+	fi
 
 	if [ -n "$VC_CHANNEL" ]; then
 		RADAR_CHANNEL="$VC_CHANNEL"
@@ -107,11 +126,15 @@ elif echo "$HOST" | grep -qE "^vehicle[0-9]+$"; then
 		fi
 	fi
 
-	launch_proc ecu $((VC_BASE_PORT + 100)) 0 0 "$ECU_CHANNEL"
+	RADAR_PORT=$((VC_BASE_PORT + 0 * VC_PORT_STRIDE))
+	LIDAR_PORT=$((VC_BASE_PORT + 1 * VC_PORT_STRIDE))
+	GPS_PORT=$((VC_BASE_PORT + 2 * VC_PORT_STRIDE))
 
-	launch_proc radar $((VC_BASE_PORT + 0)) $VC_PERIOD_RADAR 1 "$RADAR_CHANNEL"
-	launch_proc lidar $((VC_BASE_PORT + 1)) $VC_PERIOD_LIDAR 2 "$LIDAR_CHANNEL"
-	launch_proc gps $((VC_BASE_PORT + 2)) $VC_PERIOD_GPS 3 "$GPS_CHANNEL"
+	launch_proc ecu $VC_ECU_PORT $VC_PERIOD_ECU 0 "$ECU_CHANNEL"
+
+	launch_proc radar $RADAR_PORT $VC_PERIOD_RADAR 1 "$RADAR_CHANNEL"
+	launch_proc lidar $LIDAR_PORT $VC_PERIOD_LIDAR 2 "$LIDAR_CHANNEL"
+	launch_proc gps $GPS_PORT $VC_PERIOD_GPS 3 "$GPS_CHANNEL"
 
 	for PID in $PIDS; do
 		wait "$PID"
